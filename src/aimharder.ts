@@ -24,13 +24,15 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 const LOGIN_URL = "https://login.aimharder.com/api/login";
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const FINGERPRINT_FILE = join(__dirname, "..", ".fingerprint");
+// El fingerprint se guarda en la carpeta de usuario (no junto al código) para que
+// sea estable aunque el server se ejecute desde la caché de `npx` (efímera/solo-lectura).
+const CONFIG_DIR = join(homedir(), ".fitbot-mcp");
+const FINGERPRINT_FILE = join(CONFIG_DIR, "fingerprint");
 
 /** bookState devuelto por /api/book */
 const BOOK_STATE_MESSAGES: Record<number, string> = {
@@ -76,6 +78,10 @@ export interface Session {
 }
 
 function getFingerprint(): string {
+  // Permite fijarlo por entorno (útil en despliegues sin disco persistente).
+  const fromEnv = process.env.AIMHARDER_FINGERPRINT?.trim();
+  if (fromEnv) return fromEnv;
+
   if (existsSync(FINGERPRINT_FILE)) {
     const fp = readFileSync(FINGERPRINT_FILE, "utf8").trim();
     if (fp) return fp;
@@ -83,6 +89,7 @@ function getFingerprint(): string {
   // 50 caracteres [a-z0-9], estable entre ejecuciones para no acumular "dispositivos"
   const fp = randomBytes(40).toString("hex").slice(0, 50);
   try {
+    mkdirSync(CONFIG_DIR, { recursive: true });
     writeFileSync(FINGERPRINT_FILE, fp, "utf8");
   } catch {
     /* si no se puede persistir, se usa uno efímero */

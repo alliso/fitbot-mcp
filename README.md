@@ -16,30 +16,23 @@ Servidor [MCP](https://modelcontextprotocol.io) para **AimHarder**: reserva clas
 
 Todas aceptan `date` (`YYYY-MM-DD`, por defecto hoy) y, si perteneces a varios boxes, `boxId`.
 
-## Instalación
-
-```bash
-npm install
-npm run build
-```
-
 ## Configuración
 
-Credenciales por variables de entorno:
+Credenciales por variables de entorno: `AIMHARDER_EMAIL` y `AIMHARDER_PASSWORD`.
 
-- `AIMHARDER_EMAIL`
-- `AIMHARDER_PASSWORD`
+No hace falta clonar el repo: puedes ejecutarlo directamente con `npx`.
 
-### Claude Desktop / Claude Code
+### Opción 1 — directo desde GitHub (sin publicar en npm)
 
-Añade a tu `claude_desktop_config.json` (o `.mcp.json`):
+`npx` clona y compila el paquete la primera vez (script `prepare`). Añade a tu
+`claude_desktop_config.json` (Claude Desktop) o `.mcp.json` (Claude Code):
 
 ```json
 {
   "mcpServers": {
     "fitbot": {
-      "command": "node",
-      "args": ["/ruta/absoluta/a/fitbot-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "github:alliso/fitbot-mcp"],
       "env": {
         "AIMHARDER_EMAIL": "tu@email.com",
         "AIMHARDER_PASSWORD": "tu_contraseña"
@@ -48,6 +41,34 @@ Añade a tu `claude_desktop_config.json` (o `.mcp.json`):
   }
 }
 ```
+
+### Opción 2 — desde npm (si lo publicas)
+
+Tras `npm publish --access public`, la config es aún más corta:
+
+```json
+{
+  "mcpServers": {
+    "fitbot": {
+      "command": "npx",
+      "args": ["-y", "fitbot-mcp"],
+      "env": {
+        "AIMHARDER_EMAIL": "tu@email.com",
+        "AIMHARDER_PASSWORD": "tu_contraseña"
+      }
+    }
+  }
+}
+```
+
+### Opción 3 — instalación local (desarrollo)
+
+```bash
+git clone https://github.com/alliso/fitbot-mcp.git
+cd fitbot-mcp && npm install && npm run build
+```
+
+y usa `"command": "node", "args": ["/ruta/a/fitbot-mcp/dist/index.js"]`.
 
 Reinicia el cliente y pídele, por ejemplo: *"reserva la clase de CrossFit de mañana a las 18:15"*.
 
@@ -61,7 +82,7 @@ Reinicia el cliente y pídele, por ejemplo: *"reserva la clase de CrossFit de ma
 ## Notas
 
 - **Apuntados a una clase**: AimHarder solo expone la lista de asistentes a cuentas con rol **coach/administrador** en el box. Para cuentas de cliente el endpoint (`/api/coachBookings`) devuelve vacío, y `class_attendees` lo indica en su respuesta.
-- **Fingerprint**: en el primer arranque se genera un identificador de dispositivo estable y se guarda en `.fingerprint` (ignorado por git) para no acumular "dispositivos" en tu cuenta.
+- **Fingerprint**: en el primer arranque se genera un identificador de dispositivo estable y se guarda en `~/.fitbot-mcp/fingerprint` (en tu carpeta de usuario, para que persista aunque se ejecute vía `npx`). Puedes fijarlo con la variable `AIMHARDER_FINGERPRINT`.
 - **Multi-box**: si tu cuenta pertenece a varios boxes, usa `list_boxes` para ver los `boid` y pasa `boxId` a las demás herramientas.
 
 ## API (referencia interna)
