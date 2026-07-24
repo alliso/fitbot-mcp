@@ -72,6 +72,46 @@ y usa `"command": "node", "args": ["/ruta/a/fitbot-mcp/dist/index.js"]`.
 
 Reinicia el cliente y pídele, por ejemplo: *"reserva la clase de CrossFit de mañana a las 18:15"*.
 
+## Modo HTTP (para n8n y otros clientes remotos)
+
+Además de stdio, el server puede arrancar como servicio HTTP con **URL propia**
+(transporte *Streamable HTTP* del MCP SDK), sin necesidad de gateways.
+
+```bash
+# desde el repo (o npx -y github:alliso/fitbot-mcp --http)
+AIMHARDER_EMAIL=tu@email.com AIMHARDER_PASSWORD=tu_contraseña \
+  PORT=8000 HOST=0.0.0.0 \
+  node dist/index.js --http
+```
+
+Endpoint MCP: `http://<host>:8000/mcp` — y `GET /health` para healthcheck.
+
+Variables de entorno:
+
+| Var | Por defecto | Descripción |
+|---|---|---|
+| `PORT` | `8000` | Puerto de escucha. |
+| `HOST` | `127.0.0.1` | Interfaz. Usa `0.0.0.0` en Docker/contenedores. |
+| `MCP_HTTP_PATH` | `/mcp` | Ruta del endpoint. |
+| `MCP_HTTP_TOKEN` | — | Si se define, exige `Authorization: Bearer <token>`. **Recomendado** si el puerto es accesible por la red. |
+
+También puedes activarlo con `MCP_TRANSPORT=http` en vez del flag `--http`.
+
+### Conectarlo desde n8n (self-hosted)
+
+1. Arranca el server en modo HTTP en una máquina accesible desde n8n (mismo host,
+   otra máquina de la red, o un contenedor en el mismo `docker-compose`).
+2. En n8n, dentro de tu **AI Agent**, añade el nodo **MCP Client Tool**.
+3. Transporte **HTTP Streamable** (o SSE, según versión) y **Endpoint**:
+   `http://<host>:8000/mcp`
+   - Si defines `MCP_HTTP_TOKEN`, añade en el nodo la cabecera
+     `Authorization: Bearer <token>`.
+4. Si n8n corre en Docker y el server en el host, usa `http://host.docker.internal:8000/mcp`.
+
+> Alternativa sin modo HTTP: el community node `n8n-nodes-mcp` permite conexión
+> **STDIO** con `command: npx`, `args: -y github:alliso/fitbot-mcp` y las variables
+> de entorno de credenciales (requiere Node/npx dentro del contenedor de n8n).
+
 ## Ejemplos de uso (lenguaje natural)
 
 - "¿Qué clases hay hoy?" → `list_classes`

@@ -13,8 +13,12 @@
  *   AIMHARDER_EMAIL, AIMHARDER_PASSWORD
  */
 
+import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { AimHarderClient, type Booking } from "./aimharder.js";
 
@@ -38,6 +42,8 @@ function formatBooking(b: Booking): string {
   return `${b.time}  ${b.className}${coach}  [${b.ocupation}/${b.limit}]${status}${mine}  (id=${b.id})`;
 }
 
+/** Construye una instancia del server MCP con todas las herramientas registradas. */
+function buildServer(): McpServer {
 const server = new McpServer({
   name: "fitbot-mcp",
   version: "0.1.0",
@@ -171,10 +177,127 @@ server.registerTool(
   },
 );
 
-async function main() {
+  return server;
+}
+
+/** Arranca en modo stdio (Claude Desktop/Code lo lanzan como subproceso). */
+async function runStdio() {
   const transport = new StdioServerTransport();
-  await server.connect(transport);
+  await buildServer().connect(transport);
   console.error("fitbot-mcp en marcha (stdio).");
+}
+
+/** Lee el cuerpo de una petición HTTP como JSON (o undefined si va vacío). */
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  if (chunks.length === 0) return undefined;
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Arranca en modo HTTP (transporte Streamable HTTP del SDK) para clientes remotos
+ * como n8n. Endpoint MCP en POST/GET/DELETE {path} (por defecto /mcp).
+ *
+ * Config por entorno:
+ *   PORT          puerto (por defecto 8000)
+ *   HOST          interfaz (por defecto 127.0.0.1; usa 0.0.0.0 en Docker)
+ *   MCP_HTTP_PATH ruta del endpoint (por defecto /mcp)
+ *   MCP_HTTP_TOKEN  si se define, exige cabecera Authorization: Bearer <token>
+ */
+async function runHttp() {
+  const port = Number(process.env.PORT ?? 8000);
+  const host = process.env.HOST ?? "127.0.0.1";
+  const mcpPath = process.env.MCP_HTTP_PATH ?? "/mcp";
+  const token = process.env.MCP_HTTP_TOKEN?.trim();
+
+  // Sesiones activas: sessionId -> transporte.
+  const transports = new Map<string, StreamableHTTPServerTransport>();
+
+  const jsonError = (res: ServerResponse, status: number, message: string) => {
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }));
+  };
+
+  const httpServer = createHttpServer(async (req, res) => {
+    const path = (req.url ?? "").split("?")[0];
+
+    if (path === "/health") {
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end("ok");
+      return;
+    }
+    if (path !== mcpPath) {
+      jsonError(res, 404, "Not found");
+      return;
+    }
+    if (token) {
+      const auth = req.headers["authorization"];
+      if (auth !== `Bearer ${token}`) {
+        jsonError(res, 401, "Unauthorized");
+        return;
+      }
+    }
+
+    try {
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
+      let transport = sessionId ? transports.get(sessionId) : undefined;
+
+      if (req.method === "POST") {
+        const body = await readJsonBody(req);
+        if (!transport) {
+          if (!isInitializeRequest(body)) {
+            jsonError(res, 400, "No hay sesión: falta la petición 'initialize'.");
+            return;
+          }
+          transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized: (sid) => {
+              transports.set(sid, transport!);
+            },
+          });
+          transport.onclose = () => {
+            if (transport!.sessionId) transports.delete(transport!.sessionId);
+          };
+          await buildServer().connect(transport);
+        }
+        await transport.handleRequest(req, res, body);
+        return;
+      }
+
+      if (req.method === "GET" || req.method === "DELETE") {
+        if (!transport) {
+          jsonError(res, 400, "Sesión no válida o ausente (cabecera mcp-session-id).");
+          return;
+        }
+        await transport.handleRequest(req, res);
+        return;
+      }
+
+      jsonError(res, 405, "Método no permitido");
+    } catch (err) {
+      console.error("Error atendiendo petición MCP:", err);
+      if (!res.headersSent) jsonError(res, 500, "Error interno");
+    }
+  });
+
+  await new Promise<void>((resolve) => httpServer.listen(port, host, resolve));
+  console.error(
+    `fitbot-mcp en marcha (HTTP) en http://${host}:${port}${mcpPath}` +
+      (token ? " [auth: Bearer token requerido]" : ""),
+  );
+}
+
+async function main() {
+  const useHttp =
+    process.argv.includes("--http") ||
+    (process.env.MCP_TRANSPORT ?? "").toLowerCase() === "http";
+  if (useHttp) await runHttp();
+  else await runStdio();
 }
 
 main().catch((err) => {
