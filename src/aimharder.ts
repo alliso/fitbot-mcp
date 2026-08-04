@@ -176,6 +176,9 @@ export class AimHarderClient {
       throw new Error("Login fallido: credenciales incorrectas o cuenta bloqueada.");
     }
     const userData = json.data.userData;
+    if (!userData) {
+      throw new Error("Login aceptado pero sin datos de usuario en la respuesta de AimHarder.");
+    }
     const roles: Role[] = (userData.roles ?? []).map((r: any) => ({
       boid: r.boid,
       centreUrl: r.centre_url,
@@ -201,9 +204,11 @@ export class AimHarderClient {
 
   /**
    * Resuelve el box a usar. Si hay varios y no se indica boxId, usa el primero.
+   * Requiere haber llamado antes a login().
    */
   private resolveRole(boxId?: number): Role {
-    const session = this.session!;
+    const session = this.session;
+    if (!session) throw new Error("No hay sesión iniciada: llama a login() antes de resolver el box.");
     if (boxId != null) {
       const role = session.roles.find((r) => r.boid === boxId);
       if (!role) throw new Error(`No perteneces al box con id ${boxId}.`);
@@ -288,6 +293,7 @@ export class AimHarderClient {
   async findClass(
     opts: { date?: string; boxId?: number; classId?: number; time?: string; name?: string },
   ): Promise<{ booking: Booking; role: Role; day: string }> {
+    await this.login();
     const role = this.resolveRole(opts.boxId);
     const day = toApiDate(opts.date);
     const classes = await this.listClasses(opts.date, opts.boxId);
