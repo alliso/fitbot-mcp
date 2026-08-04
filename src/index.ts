@@ -46,7 +46,7 @@ function formatBooking(b: Booking): string {
 function buildServer(): McpServer {
 const server = new McpServer({
   name: "fitbot-mcp",
-  version: "0.1.0",
+  version: "0.1.1",
 });
 
 const dateArg = z
