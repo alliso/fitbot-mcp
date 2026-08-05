@@ -35,4 +35,7 @@ USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- "http://127.0.0.1:${PORT}/health" || exit 1
 
-CMD ["node", "dist/index.js", "--http"]
+# --import carga el bootstrap de OpenTelemetry antes que la app, para que las
+# instrumentaciones parcheen node:http a tiempo. Si no hay
+# OTEL_EXPORTER_OTLP_ENDPOINT en el entorno, tracing.js no arranca nada.
+CMD ["node", "--import", "./dist/tracing.js", "dist/index.js", "--http"]

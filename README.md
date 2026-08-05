@@ -97,6 +97,31 @@ Variables de entorno:
 
 También puedes activarlo con `MCP_TRANSPORT=http` en vez del flag `--http`.
 
+## Trazas (OpenTelemetry)
+
+Opcional y desactivado por defecto: si defines `OTEL_EXPORTER_OTLP_ENDPOINT`, el
+server exporta trazas por OTLP HTTP a ese colector (Tempo, Jaeger, el OTel
+Collector…). Sin esa variable no se arranca el SDK, que es lo que interesa en
+modo stdio.
+
+| Var | Descripción |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Colector OTLP HTTP, p.ej. `http://tempo:4318`. El exporter le añade `/v1/traces`. |
+| `OTEL_SERVICE_NAME` | Nombre del servicio en el backend de trazas. |
+| `OTEL_RESOURCE_ATTRIBUTES` | Atributos extra, p.ej. `service.namespace=home-utils`. |
+
+Cada petición produce un span de servidor, un span `mcp.tool <nombre>` por
+herramienta invocada y un span de cliente por cada llamada a AimHarder:
+
+```
+POST /mcp
+└── mcp.tool list_classes
+    └── POST login.aimharder.com/api/login
+```
+
+Las probes a `/health` se ignoran. Un fallo de herramienta marca el span como
+error y adjunta la excepción.
+
 ### Conectarlo desde n8n (self-hosted)
 
 1. Arranca el server en modo HTTP en una máquina accesible desde n8n (mismo host,

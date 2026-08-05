@@ -11,8 +11,13 @@
  *
  * Credenciales por variables de entorno:
  *   AIMHARDER_EMAIL, AIMHARDER_PASSWORD
+ *
+ * Trazas opcionales a un colector OTLP: ver src/tracing.ts.
  */
 
+// Primero de todos a propósito: arranca OpenTelemetry (si está configurado) antes
+// de que se importe node:http, que es lo que la instrumentación tiene que parchear.
+import { instrumentMcpTools } from "./tracing.js";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -44,10 +49,12 @@ function formatBooking(b: Booking): string {
 
 /** Construye una instancia del server MCP con todas las herramientas registradas. */
 function buildServer(): McpServer {
-const server = new McpServer({
-  name: "fitbot-mcp",
-  version: "0.1.2",
-});
+const server = instrumentMcpTools(
+  new McpServer({
+    name: "fitbot-mcp",
+    version: "0.1.3",
+  }),
+);
 
 const dateArg = z
   .string()
