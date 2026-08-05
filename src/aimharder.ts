@@ -45,6 +45,34 @@ const BOOK_STATE_MESSAGES: Record<number, string> = {
   [-7]: "No puedes reservar con tan poca antelación",
 };
 
+/**
+ * AimHarder no siempre devuelve un estado numérico: cuando rechaza la operación por
+ * reglas del box (máximo de clases, tarifa, penalización…) manda solo un texto,
+ * a veces con HTML dentro.
+ */
+function serverMessage(resp: any): string | null {
+  const raw = resp?.errorMssg ?? resp?.errorMsg ?? resp?.error ?? resp?.message;
+  if (typeof raw !== "string") return null;
+  const text = raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return text || null;
+}
+
+/** Vuelca la respuesta para poder diagnosticar formatos no contemplados. */
+function describeResponse(resp: any): string {
+  try {
+    return JSON.stringify(resp) ?? String(resp);
+  } catch {
+    return String(resp);
+  }
+}
+
+/** Convierte el estado devuelto a número, o null si no viene / no es numérico. */
+function toState(raw: unknown): number | null {
+  if (raw == null || raw === "") return null;
+  const n = Number(raw);
+  return Number.isNaN(n) ? null : n;
+}
+
 export interface Booking {
   /** id de la instancia de clase, necesario para /api/book */
   id: number;
@@ -327,7 +355,7 @@ export class AimHarderClient {
   /** Reserva una clase. Devuelve el resultado con mensaje legible. */
   async book(
     opts: { date?: string; boxId?: number; classId?: number; time?: string; name?: string; insist?: boolean },
-  ): Promise<{ ok: boolean; bookState: number; message: string; reservationId?: number; booking: Booking }> {
+  ): Promise<{ ok: boolean; bookState: number | null; message: string; reservationId?: number; booking: Booking }> {
     const { booking, role, day } = await this.findClass(opts);
 
     if (booking.bookState === 1) {
@@ -347,12 +375,26 @@ export class AimHarderClient {
       familyId: "",
     });
 
-    const bookState = Number(resp?.bookState);
+    const bookState = toState(resp?.bookState);
     const ok = bookState === 1 || bookState === 0;
+    const detail = serverMessage(resp);
+    const known = bookState != null ? BOOK_STATE_MESSAGES[bookState] : undefined;
+
+    let message: string;
+    if (known) {
+      message = detail && !ok ? `${known} (${detail})` : known;
+    } else if (detail) {
+      message = `No se pudo reservar: ${detail}`;
+    } else if (bookState != null) {
+      message = `Respuesta desconocida (bookState=${bookState}).`;
+    } else {
+      message = `AimHarder no ha devuelto bookState. Respuesta: ${describeResponse(resp)}`;
+    }
+
     return {
       ok,
       bookState,
-      message: BOOK_STATE_MESSAGES[bookState] ?? `Respuesta desconocida (bookState=${bookState}).`,
+      message,
       reservationId: resp?.id ? Number(resp.id) : undefined,
       booking,
     };
@@ -361,7 +403,7 @@ export class AimHarderClient {
   /** Cancela la reserva del usuario en una clase. */
   async cancel(
     opts: { date?: string; boxId?: number; classId?: number; time?: string; name?: string; late?: boolean },
-  ): Promise<{ ok: boolean; cancelState: number; message: string; booking: Booking }> {
+  ): Promise<{ ok: boolean; cancelState: number | null; message: string; booking: Booking }> {
     const { booking, role } = await this.findClass(opts);
 
     if (!booking.idres) {
@@ -379,14 +421,22 @@ export class AimHarderClient {
       familyId: "",
     });
 
-    const cancelState = Number(resp?.cancelState);
+    const cancelState = toState(resp?.cancelState);
     const ok = cancelState === 1;
-    return {
-      ok,
-      cancelState,
-      message: ok ? "Reserva cancelada." : `No se pudo cancelar (cancelState=${cancelState}).`,
-      booking,
-    };
+    const detail = serverMessage(resp);
+
+    let message: string;
+    if (ok) {
+      message = "Reserva cancelada.";
+    } else if (detail) {
+      message = `No se pudo cancelar: ${detail}`;
+    } else if (cancelState != null) {
+      message = `No se pudo cancelar (cancelState=${cancelState}).`;
+    } else {
+      message = `AimHarder no ha devuelto cancelState. Respuesta: ${describeResponse(resp)}`;
+    }
+
+    return { ok, cancelState, message, booking };
   }
 
   /**
