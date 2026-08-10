@@ -148,6 +148,7 @@ error y adjunta la excepción.
 
 - **Apuntados a una clase**: AimHarder solo expone la lista de asistentes a cuentas con rol **coach/administrador** en el box. Para cuentas de cliente el endpoint (`/api/coachBookings`) devuelve vacío, y `class_attendees` lo indica en su respuesta.
 - **Fingerprint**: en el primer arranque se genera un identificador de dispositivo estable y se guarda en `~/.fitbot-mcp/fingerprint` (en tu carpeta de usuario, para que persista aunque se ejecute vía `npx`). Puedes fijarlo con la variable `AIMHARDER_FINGERPRINT`.
+- **Sesión caducada**: la cookie de login no dura para siempre. Si AimHarder responde `{"logout":1}` (pasa en servidores de larga vida), el cliente vuelve a autenticarse y repite la llamada una vez; solo si falla otra vez devuelve error.
 - **Multi-box**: si tu cuenta pertenece a varios boxes, usa `list_boxes` para ver los `boid` y pasa `boxId` a las demás herramientas.
 
 ## API (referencia interna)
@@ -156,3 +157,4 @@ error y adjunta la excepción.
 - **Horario**: `GET https://{subdominio}/api/bookings?day=YYYYMMDD&box={boid}&familyId=`
 - **Reservar**: `POST https://{subdominio}/api/book` — form `{ id, day, insist, familyId }`. `bookState`: `1/0` ok · `-1` llena · `-2` sin tarifa · `-4/-7` antelación · `-5` pago pendiente.
 - **Cancelar**: `POST https://{subdominio}/api/cancelBook` — form `{ id: idres, late, familyId }`. `cancelState: 1` = ok.
+- **Sesión caducada**: cualquiera de los endpoints anteriores puede responder `{ logout: 1 }` en lugar del estado esperado; significa que hay que rehacer el login.

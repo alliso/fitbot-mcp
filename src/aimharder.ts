@@ -57,6 +57,16 @@ function serverMessage(resp: any): string | null {
   return text || null;
 }
 
+/**
+ * AimHarder responde `{ "logout": 1 }` (en vez del estado esperado) cuando la cookie
+ * de sesión ya no vale. Pasa en procesos largos: el server cachea la sesión del login
+ * y el gimnasio la invalida al cabo de un rato o desde otro dispositivo.
+ */
+function isLoggedOut(resp: any): boolean {
+  const v = resp?.logout;
+  return v === true || v === 1 || v === "1";
+}
+
 /** Vuelca la respuesta para poder diagnosticar formatos no contemplados. */
 function describeResponse(resp: any): string {
   try {
@@ -166,6 +176,8 @@ function cookieHeader(jar: Record<string, string>): string {
 
 export class AimHarderClient {
   private session: Session | null = null;
+  /** Login en curso, para que varias llamadas en paralelo no abran sesiones duplicadas. */
+  private loginInFlight: Promise<Session> | null = null;
 
   constructor(
     private readonly email: string,
@@ -175,7 +187,21 @@ export class AimHarderClient {
   /** Inicia sesión y guarda cookies + roles. Idempotente. */
   async login(): Promise<Session> {
     if (this.session) return this.session;
+    if (!this.loginInFlight) {
+      this.loginInFlight = this.doLogin().finally(() => {
+        this.loginInFlight = null;
+      });
+    }
+    return this.loginInFlight;
+  }
 
+  /** Descarta la sesión cacheada y vuelve a autenticarse. */
+  private async relogin(): Promise<Session> {
+    this.session = null;
+    return this.login();
+  }
+
+  private async doLogin(): Promise<Session> {
     const res = await fetch(LOGIN_URL, {
       method: "POST",
       headers: {
@@ -250,7 +276,27 @@ export class AimHarderClient {
     return s.roles;
   }
 
-  private async apiGet(centreUrl: string, path: string, params: Record<string, string>): Promise<any> {
+  /**
+   * Si la respuesta es un `{ logout: 1 }`, renueva la sesión y deja repetir la llamada
+   * una sola vez. Si vuelve a caer, es que el re-login no arregla el problema.
+   */
+  private async retryAfterLogout<T>(path: string, allowRetry: boolean, retry: () => Promise<T>): Promise<T> {
+    if (!allowRetry) {
+      throw new Error(
+        `La sesión de AimHarder ha caducado y el re-login no la ha restablecido (${path}). ` +
+          "Revisa las credenciales o si has iniciado sesión desde otro dispositivo.",
+      );
+    }
+    await this.relogin();
+    return retry();
+  }
+
+  private async apiGet(
+    centreUrl: string,
+    path: string,
+    params: Record<string, string>,
+    allowRetry = true,
+  ): Promise<any> {
     const session = this.session!;
     const qs = new URLSearchParams({ ...params, _: String(Date.now()) });
     const res = await fetch(`https://${centreUrl}${path}?${qs}`, {
@@ -262,14 +308,24 @@ export class AimHarderClient {
     });
     const text = await res.text();
     if (!text.trim()) return null;
+    let json: any;
     try {
-      return JSON.parse(text);
+      json = JSON.parse(text);
     } catch {
       throw new Error(`Respuesta no-JSON de ${path} (HTTP ${res.status}).`);
     }
+    if (isLoggedOut(json)) {
+      return this.retryAfterLogout(path, allowRetry, () => this.apiGet(centreUrl, path, params, false));
+    }
+    return json;
   }
 
-  private async apiPostForm(centreUrl: string, path: string, form: Record<string, string>): Promise<any> {
+  private async apiPostForm(
+    centreUrl: string,
+    path: string,
+    form: Record<string, string>,
+    allowRetry = true,
+  ): Promise<any> {
     const session = this.session!;
     const res = await fetch(`https://${centreUrl}${path}`, {
       method: "POST",
@@ -282,11 +338,16 @@ export class AimHarderClient {
       body: new URLSearchParams(form).toString(),
     });
     const text = await res.text();
+    let json: any;
     try {
-      return JSON.parse(text);
+      json = JSON.parse(text);
     } catch {
       throw new Error(`Respuesta no-JSON de ${path} (HTTP ${res.status}): ${text.slice(0, 200)}`);
     }
+    if (isLoggedOut(json)) {
+      return this.retryAfterLogout(path, allowRetry, () => this.apiPostForm(centreUrl, path, form, false));
+    }
+    return json;
   }
 
   /** Lista las clases de un día. */
