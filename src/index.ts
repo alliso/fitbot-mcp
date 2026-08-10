@@ -52,7 +52,7 @@ function buildServer(): McpServer {
 const server = instrumentMcpTools(
   new McpServer({
     name: "fitbot-mcp",
-    version: "0.1.3",
+    version: "0.1.4",
   }),
 );
 
