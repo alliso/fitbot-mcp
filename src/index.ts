@@ -43,7 +43,7 @@ if (!email || !password) {
 
 const client = new AimHarderClient(email, password);
 
-const VERSION = "0.1.4";
+const VERSION = "0.1.5";
 
 function formatBooking(b: Booking): string {
   const full = b.ocupation >= b.limit;
