@@ -4,3 +4,4 @@ dist/
 .fingerprint
 *.log
 .DS_Store
+coverage/

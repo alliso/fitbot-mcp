@@ -72,6 +72,29 @@ y usa `"command": "node", "args": ["/ruta/a/fitbot-mcp/dist/index.js"]`.
 
 Reinicia el cliente y pídele, por ejemplo: *"reserva la clase de CrossFit de mañana a las 18:15"*.
 
+## Tests
+
+```bash
+npm test          # suite completa (vitest)
+npm run test:watch
+npm run coverage  # informe + umbrales (text, html en coverage/, lcov)
+```
+
+Los tests no tocan la red ni AimHarder: el `fetch` global va mockeado y se
+inyecta un cliente de mentira en el server MCP. El transporte HTTP sí se prueba
+de verdad, levantando el servidor en un puerto libre y hablándole con el cliente
+del MCP SDK.
+
+| Fichero | Qué cubre |
+|---|---|
+| `tests/aimharder.test.ts` | Login, fingerprint, cookies, mapeo de clases, reserva/cancelación, re-login tras `{logout:1}`. |
+| `tests/server.test.ts` | Las cinco herramientas MCP vía transporte en memoria, y el formato de salida. |
+| `tests/server-http.test.ts` | Rutas, `Bearer` token, ciclo de sesión Streamable HTTP y casos límite del handler. |
+| `tests/server-stdio.test.ts` | Modo stdio y elección de transporte en `main()`. |
+| `tests/logger.test.ts` | Niveles, formato JSON, serialización de errores, correlación con trazas. |
+| `tests/tracing*.test.ts` | Instrumentación de herramientas con OTel activado y desactivado. |
+| `tests/index.test.ts` | Arranque y validación de credenciales. |
+
 ## Modo HTTP (para n8n y otros clientes remotos)
 
 Además de stdio, el server puede arrancar como servicio HTTP con **URL propia**
