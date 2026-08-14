@@ -30,7 +30,11 @@
     "prepare": "npm run build",
     "dev": "node --experimental-strip-types --watch src/index.ts",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "test:mutation": "stryker run"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
@@ -42,8 +46,12 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "^24.0.0",
-    "typescript": "^5.5.0"
+    "@vitest/coverage-v8": "^4.1.10",
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=22"

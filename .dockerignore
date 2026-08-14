@@ -7,3 +7,6 @@ dist
 *.log
 .DS_Store
 npm-debug.log*
+coverage
+reports
+.stryker-tmp

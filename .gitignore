@@ -4,3 +4,6 @@ dist/
 .fingerprint
 *.log
 .DS_Store
+coverage/
+reports/
+.stryker-tmp/
