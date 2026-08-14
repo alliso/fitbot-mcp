@@ -225,6 +225,104 @@ describe("login", () => {
   });
 });
 
+/**
+ * AimHarder no tiene API pública: estas peticiones están reverseadas y el
+ * servidor rechaza (o responde HTML) si falta el `X-Requested-With`, si el
+ * `Content-Type` no coincide o si el método no es el esperado. Aquí se fija la
+ * forma exacta de las tres peticiones que hace el cliente, porque un cambio ahí
+ * no rompe ningún otro test pero sí rompe en producción.
+ */
+describe("forma de las peticiones", () => {
+  it("login: POST con JSON y el fingerprint", async () => {
+    const { calls } = await loggedIn();
+
+    expect(calls[0].url).toBe("https://login.aimharder.com/api/login");
+    expect(calls[0].init.method).toBe("POST");
+    expect(calls[0].init.headers).toEqual({
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    });
+    expect(calls[0].json).toEqual({
+      username: "ada@example.com",
+      password: "pw",
+      fingerprint: "fp-de-test",
+      iniframe: 0,
+    });
+  });
+
+  it("apiGet: GET con cookies, XHR y Accept", async () => {
+    const { client, calls } = await loggedIn([fakeRes({ body: { bookings: [] } })]);
+    await client.listClasses("2026-07-24");
+
+    // Sin `method`: fetch usa GET por defecto.
+    expect(calls[1].init.method).toBeUndefined();
+    expect(calls[1].init.headers).toEqual({
+      Cookie: "PHPSESSID=abc123; amhrdrauth=tok",
+      "X-Requested-With": "XMLHttpRequest",
+      Accept: "application/json, text/plain, */*",
+    });
+    expect(calls[1].init.body).toBeUndefined();
+  });
+
+  it("apiPostForm: POST form-urlencoded, no JSON", async () => {
+    const { client, calls } = await loggedIn([
+      fakeRes({ body: { bookings: [rawBooking({ id: 7 })] } }),
+      fakeRes({ body: { bookState: 1 } }),
+    ]);
+    await client.book({ date: "2026-07-24", classId: 7 });
+
+    expect(calls[2].init.method).toBe("POST");
+    expect(calls[2].init.headers).toEqual({
+      Cookie: "PHPSESSID=abc123; amhrdrauth=tok",
+      "X-Requested-With": "XMLHttpRequest",
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+      Accept: "application/json, text/plain, */*",
+    });
+    // El cuerpo va urlencodeado, no como JSON.
+    expect(calls[2].init.body).toBe("id=7&day=20260724&insist=0&familyId=");
+  });
+
+  it("listClasses pide el familyId vacío y el box en la query", async () => {
+    const { client, calls } = await loggedIn([fakeRes({ body: { bookings: [] } })]);
+    await client.listClasses("2026-07-24", 200);
+
+    const qs = new URL(calls[1].url).searchParams;
+    expect(calls[1].url.startsWith("https://otro.aimharder.com/api/bookings?")).toBe(true);
+    expect(qs.get("box")).toBe("200");
+    expect(qs.get("familyId")).toBe("");
+    expect(qs.get("day")).toBe("20260724");
+  });
+});
+
+describe("listRoles", () => {
+  it("hace login y devuelve los boxes de la sesión", async () => {
+    const { impl } = installFetch([loginOk()]);
+    const client = new AimHarderClient("ada@example.com", "pw");
+
+    await expect(client.listRoles()).resolves.toEqual([
+      { boid: 100, centreUrl: "mybox.aimharder.com", gym: "Mi Box", role: "client" },
+      { boid: 200, centreUrl: "otro.aimharder.com", gym: "Otro Box", role: "coach" },
+    ]);
+    expect(impl).toHaveBeenCalledTimes(1);
+  });
+
+  it("reaprovecha la sesión en llamadas sucesivas", async () => {
+    const { client, impl } = await loggedIn();
+
+    const a = await client.listRoles();
+    const b = await client.listRoles();
+    expect(a).toEqual(b);
+    expect(impl).toHaveBeenCalledTimes(1);
+  });
+
+  it("propaga el fallo de login", async () => {
+    installFetch([fakeRes({ body: { data: { auth: { authOK: false } } } })]);
+    await expect(new AimHarderClient("a@b.c", "pw").listRoles()).rejects.toThrow(
+      /credenciales incorrectas/,
+    );
+  });
+});
+
 describe("selección de box", () => {
   it("usa el primer box si no se indica boxId", async () => {
     const { client, calls } = await loggedIn([fakeRes({ body: { bookings: [] } })]);

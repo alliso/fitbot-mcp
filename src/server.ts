@@ -35,6 +35,8 @@ export function buildServer(client: AimHarderClient): McpServer {
     }),
   );
 
+  // Stryker disable StringLiteral : los textos de ayuda son prosa para el LLM;
+  // afirmar sobre ellos en un test solo ata las manos al reescribirlos.
   const dateArg = z
     .string()
     .describe("Fecha en formato YYYY-MM-DD. Si se omite, se usa el día de hoy.")
@@ -43,13 +45,16 @@ export function buildServer(client: AimHarderClient): McpServer {
     .number()
     .describe("id del box (boid). Solo necesario si tu cuenta pertenece a varios boxes.")
     .optional();
+  // Stryker restore StringLiteral
 
   server.registerTool(
     "list_classes",
     {
+      // Stryker disable StringLiteral
       title: "Listar clases del día",
       description:
         "Lista las clases de un día concreto con su horario, coach, plazas ocupadas y si ya estás apuntado.",
+      // Stryker restore StringLiteral
       inputSchema: {
         date: dateArg,
         boxId: boxIdArg,
@@ -68,6 +73,7 @@ export function buildServer(client: AimHarderClient): McpServer {
   server.registerTool(
     "book_class",
     {
+      // Stryker disable StringLiteral
       title: "Reservar clase",
       description:
         'Reserva una clase. Identifícala por hora de inicio (p.ej. "18:15") o por classId. ' +
@@ -81,6 +87,7 @@ export function buildServer(client: AimHarderClient): McpServer {
         insist: z.boolean().describe("Entrar en lista de espera si está llena.").optional(),
         boxId: boxIdArg,
       },
+      // Stryker restore StringLiteral
     },
     async ({ date, time, classId, name, insist, boxId }) => {
       const r = await client.book({ date, time, classId, name, insist, boxId });
@@ -96,6 +103,7 @@ export function buildServer(client: AimHarderClient): McpServer {
   server.registerTool(
     "cancel_class",
     {
+      // Stryker disable StringLiteral
       title: "Cancelar reserva",
       description:
         "Cancela tu reserva en una clase. Identifícala por hora de inicio o por classId. " +
@@ -108,6 +116,7 @@ export function buildServer(client: AimHarderClient): McpServer {
         late: z.boolean().describe("Cancelación fuera de plazo.").optional(),
         boxId: boxIdArg,
       },
+      // Stryker restore StringLiteral
     },
     async ({ date, time, classId, name, late, boxId }) => {
       const r = await client.cancel({ date, time, classId, name, late, boxId });
@@ -122,6 +131,7 @@ export function buildServer(client: AimHarderClient): McpServer {
   server.registerTool(
     "class_attendees",
     {
+      // Stryker disable StringLiteral
       title: "Ver apuntados a una clase",
       description:
         "Lista quién se ha apuntado a una clase. NOTA: AimHarder solo expone esta lista a cuentas " +
@@ -133,6 +143,7 @@ export function buildServer(client: AimHarderClient): McpServer {
         name: z.string().describe("Filtro por nombre de clase.").optional(),
         boxId: boxIdArg,
       },
+      // Stryker restore StringLiteral
     },
     async ({ date, time, classId, name, boxId }) => {
       const r = await client.attendees({ date, time, classId, name, boxId });
@@ -150,8 +161,10 @@ export function buildServer(client: AimHarderClient): McpServer {
   server.registerTool(
     "list_boxes",
     {
+      // Stryker disable StringLiteral
       title: "Listar mis boxes",
       description: "Muestra los boxes (gimnasios) asociados a tu cuenta y su id (boid).",
+      // Stryker restore StringLiteral
       inputSchema: {},
     },
     async () => {
@@ -232,6 +245,7 @@ export function createMcpHttpServer(client: AimHarderClient, opts: HttpOptions):
       return;
     }
     if (path !== mcpPath) {
+      // Stryker disable next-line all : línea de log, no comportamiento observable
       logger.debug("http 404", { method: req.method, path });
       jsonError(res, 404, "Not found");
       return;
@@ -239,12 +253,14 @@ export function createMcpHttpServer(client: AimHarderClient, opts: HttpOptions):
     if (token) {
       const auth = req.headers["authorization"];
       if (auth !== `Bearer ${token}`) {
+        // Stryker disable all : línea de log, no comportamiento observable
         logger.warn("http unauthorized", {
           method: req.method,
           path,
           // Solo para distinguir "no manda cabecera" de "manda un token que no vale".
           has_authorization: Boolean(auth),
         });
+        // Stryker restore all
         jsonError(res, 401, "Unauthorized");
         return;
       }
@@ -258,6 +274,7 @@ export function createMcpHttpServer(client: AimHarderClient, opts: HttpOptions):
         const body = await readJsonBody(req);
         if (!transport) {
           if (!isInitializeRequest(body)) {
+            // Stryker disable next-line all : línea de log, no comportamiento observable
             logger.warn("http sin sesión", { session_id: sessionId, path });
             jsonError(res, 400, "No hay sesión: falta la petición 'initialize'.");
             return;
@@ -266,15 +283,18 @@ export function createMcpHttpServer(client: AimHarderClient, opts: HttpOptions):
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: (sid) => {
               transports.set(sid, transport!);
+              // Stryker disable next-line all : línea de log, no comportamiento observable
               logger.info("session opened", { session_id: sid, sessions: transports.size });
             },
           });
           transport.onclose = () => {
             if (transport!.sessionId) transports.delete(transport!.sessionId);
+            // Stryker disable all : línea de log, no comportamiento observable
             logger.info("session closed", {
               session_id: transport!.sessionId,
               sessions: transports.size,
             });
+            // Stryker restore all
           };
           await buildServer(client).connect(transport);
         }
@@ -284,6 +304,7 @@ export function createMcpHttpServer(client: AimHarderClient, opts: HttpOptions):
 
       if (req.method === "GET" || req.method === "DELETE") {
         if (!transport) {
+          // Stryker disable next-line all : línea de log, no comportamiento observable
           logger.warn("http sesión no válida", { method: req.method, session_id: sessionId });
           jsonError(res, 400, "Sesión no válida o ausente (cabecera mcp-session-id).");
           return;
@@ -292,9 +313,11 @@ export function createMcpHttpServer(client: AimHarderClient, opts: HttpOptions):
         return;
       }
 
+      // Stryker disable next-line all : línea de log, no comportamiento observable
       logger.debug("http método no permitido", { method: req.method, path });
       jsonError(res, 405, "Método no permitido");
     } catch (err) {
+      // Stryker disable next-line all : línea de log, no comportamiento observable
       logger.error("http request failed", { method: req.method, path, err });
       if (!res.headersSent) jsonError(res, 500, "Error interno");
     }

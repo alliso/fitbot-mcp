@@ -95,6 +95,26 @@ del MCP SDK.
 | `tests/tracing*.test.ts` | Instrumentación de herramientas con OTel activado y desactivado. |
 | `tests/index.test.ts` | Arranque y validación de credenciales. |
 
+### Tests de mutación
+
+El coverage dice qué líneas se ejecutan, no si alguien comprueba el resultado.
+[StrykerJS](https://stryker-mutator.io/) introduce cambios pequeños en `src/`
+(invertir un `if`, cambiar un `+` por `-`, vaciar un string) y da por buena la
+suite solo si algún test se pone en rojo.
+
+```bash
+npm run test:mutation   # informe HTML en reports/mutation/index.html
+```
+
+Tarda alrededor de un minuto. El umbral de corte está en un 85% de mutation
+score; por debajo, el comando falla.
+
+Lo que **no** se mutila, marcado con `// Stryker disable` en el propio código:
+las descripciones de las herramientas MCP (prosa dirigida al LLM: afirmar sobre
+ella en un test solo estorba al reescribirla), las líneas de `logger.*` y algún
+mutante equivalente suelto. Sin esos, el score mezclaba huecos reales con texto
+y no servía como señal.
+
 ## Modo HTTP (para n8n y otros clientes remotos)
 
 Además de stdio, el server puede arrancar como servicio HTTP con **URL propia**

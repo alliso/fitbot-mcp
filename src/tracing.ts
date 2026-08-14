@@ -68,6 +68,8 @@ type ToolResult = { isError?: boolean };
 
 /** Ejecuta `fn` dentro de un span, o tal cual si el tracing está apagado. */
 function withSpan<T>(name: string, fn: (span: Span | null) => Promise<T>): Promise<T> {
+  // Stryker disable next-line all: atajo de rendimiento. Con el tracing apagado
+  // el API no-op de OTel hace lo mismo, así que quitar el `if` es indetectable.
   if (!tracingEnabled) return fn(null);
   return tracer.startActiveSpan(name, async (span: Span) => {
     try {
