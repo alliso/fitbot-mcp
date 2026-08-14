@@ -13,6 +13,7 @@
  *   AIMHARDER_EMAIL, AIMHARDER_PASSWORD
  *
  * Trazas opcionales a un colector OTLP: ver src/tracing.ts.
+ * Logs en JSON a stderr (LOG_LEVEL): ver src/logger.ts.
  */
 
 // Primero de todos a propósito: arranca OpenTelemetry (si está configurado) antes
@@ -26,18 +27,23 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { AimHarderClient, type Booking } from "./aimharder.js";
+import { logger } from "./logger.js";
 
 const email = process.env.AIMHARDER_EMAIL;
 const password = process.env.AIMHARDER_PASSWORD;
 
 if (!email || !password) {
-  console.error(
-    "Faltan credenciales. Define AIMHARDER_EMAIL y AIMHARDER_PASSWORD en el entorno.",
-  );
+  logger.error("faltan credenciales", {
+    detail: "define AIMHARDER_EMAIL y AIMHARDER_PASSWORD en el entorno",
+    has_email: Boolean(email),
+    has_password: Boolean(password),
+  });
   process.exit(1);
 }
 
 const client = new AimHarderClient(email, password);
+
+const VERSION = "0.1.4";
 
 function formatBooking(b: Booking): string {
   const full = b.ocupation >= b.limit;
@@ -52,7 +58,7 @@ function buildServer(): McpServer {
 const server = instrumentMcpTools(
   new McpServer({
     name: "fitbot-mcp",
-    version: "0.1.4",
+    version: VERSION,
   }),
 );
 
@@ -191,7 +197,7 @@ server.registerTool(
 async function runStdio() {
   const transport = new StdioServerTransport();
   await buildServer().connect(transport);
-  console.error("fitbot-mcp en marcha (stdio).");
+  logger.info("server started", { transport: "stdio", version: VERSION });
 }
 
 /** Lee el cuerpo de una petición HTTP como JSON (o undefined si va vacío). */
@@ -239,12 +245,19 @@ async function runHttp() {
       return;
     }
     if (path !== mcpPath) {
+      logger.debug("http 404", { method: req.method, path });
       jsonError(res, 404, "Not found");
       return;
     }
     if (token) {
       const auth = req.headers["authorization"];
       if (auth !== `Bearer ${token}`) {
+        logger.warn("http unauthorized", {
+          method: req.method,
+          path,
+          // Solo para distinguir "no manda cabecera" de "manda un token que no vale".
+          has_authorization: Boolean(auth),
+        });
         jsonError(res, 401, "Unauthorized");
         return;
       }
@@ -258,6 +271,7 @@ async function runHttp() {
         const body = await readJsonBody(req);
         if (!transport) {
           if (!isInitializeRequest(body)) {
+            logger.warn("http sin sesión", { session_id: sessionId, path });
             jsonError(res, 400, "No hay sesión: falta la petición 'initialize'.");
             return;
           }
@@ -265,10 +279,15 @@ async function runHttp() {
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: (sid) => {
               transports.set(sid, transport!);
+              logger.info("session opened", { session_id: sid, sessions: transports.size });
             },
           });
           transport.onclose = () => {
             if (transport!.sessionId) transports.delete(transport!.sessionId);
+            logger.info("session closed", {
+              session_id: transport!.sessionId,
+              sessions: transports.size,
+            });
           };
           await buildServer().connect(transport);
         }
@@ -278,6 +297,7 @@ async function runHttp() {
 
       if (req.method === "GET" || req.method === "DELETE") {
         if (!transport) {
+          logger.warn("http sesión no válida", { method: req.method, session_id: sessionId });
           jsonError(res, 400, "Sesión no válida o ausente (cabecera mcp-session-id).");
           return;
         }
@@ -285,18 +305,23 @@ async function runHttp() {
         return;
       }
 
+      logger.debug("http método no permitido", { method: req.method, path });
       jsonError(res, 405, "Método no permitido");
     } catch (err) {
-      console.error("Error atendiendo petición MCP:", err);
+      logger.error("http request failed", { method: req.method, path, err });
       if (!res.headersSent) jsonError(res, 500, "Error interno");
     }
   });
 
   await new Promise<void>((resolve) => httpServer.listen(port, host, resolve));
-  console.error(
-    `fitbot-mcp en marcha (HTTP) en http://${host}:${port}${mcpPath}` +
-      (token ? " [auth: Bearer token requerido]" : ""),
-  );
+  logger.info("server started", {
+    transport: "http",
+    version: VERSION,
+    host,
+    port,
+    path: mcpPath,
+    auth_required: Boolean(token),
+  });
 }
 
 async function main() {
@@ -308,6 +333,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("Error fatal:", err);
+  logger.error("fatal", { err });
   process.exit(1);
 });

@@ -22,6 +22,7 @@ import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
 import { HttpInstrumentation } from "@opentelemetry/instrumentation-http";
 import { UndiciInstrumentation } from "@opentelemetry/instrumentation-undici";
 import { SpanStatusCode, trace, type Span } from "@opentelemetry/api";
+import { logger } from "./logger.js";
 
 const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim();
 
@@ -53,6 +54,7 @@ if (tracingEnabled) {
 
   // Sin esto los spans en el buffer se pierden al reiniciar el pod.
   const shutdown = () => {
+    logger.info("server stopping", { reason: "signal" });
     sdk.shutdown().finally(() => process.exit(0));
   };
   process.once("SIGTERM", shutdown);
@@ -64,9 +66,35 @@ const tracer = trace.getTracer("fitbot-mcp");
 /** Lo que devuelve el handler de una herramienta MCP, en lo que nos interesa. */
 type ToolResult = { isError?: boolean };
 
+/** Ejecuta `fn` dentro de un span, o tal cual si el tracing está apagado. */
+function withSpan<T>(name: string, fn: (span: Span | null) => Promise<T>): Promise<T> {
+  if (!tracingEnabled) return fn(null);
+  return tracer.startActiveSpan(name, async (span: Span) => {
+    try {
+      return await fn(span);
+    } finally {
+      span.end();
+    }
+  });
+}
+
 /**
- * Envuelve `server.registerTool` para que cada llamada a una herramienta abra su
- * propio span.
+ * Los argumentos de las herramientas (fecha, hora, nombre de clase, boxId) no
+ * llevan nada sensible, pero se filtran los `undefined` para que la línea de log
+ * no se llene de ruido: casi todos los parámetros son opcionales.
+ */
+function loggableArgs(raw: unknown): Record<string, unknown> | undefined {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Envuelve `server.registerTool` para que cada llamada a una herramienta deje
+ * un log (siempre) y abra su propio span (si el tracing está configurado).
  *
  * Se parchea el método en vez de tocar los cinco `registerTool` de index.ts
  * porque todas las herramientas entran por el mismo endpoint HTTP: sin esto, en
@@ -77,38 +105,44 @@ type ToolResult = { isError?: boolean };
 export function instrumentMcpTools<T extends { registerTool: (...args: never[]) => unknown }>(
   server: T,
 ): T {
-  if (!tracingEnabled) return server;
-
   const original = server.registerTool.bind(server) as (...args: unknown[]) => unknown;
 
   (server as { registerTool: unknown }).registerTool = (...args: unknown[]) => {
     const name = args[0] as string;
     const handler = args[args.length - 1] as (...a: unknown[]) => Promise<ToolResult>;
 
-    const traced = (...handlerArgs: unknown[]) =>
-      tracer.startActiveSpan(`mcp.tool ${name}`, async (span: Span) => {
-        span.setAttribute("mcp.tool.name", name);
+    const instrumented = (...handlerArgs: unknown[]) =>
+      withSpan(`mcp.tool ${name}`, async (span) => {
+        span?.setAttribute("mcp.tool.name", name);
+        const args = loggableArgs(handlerArgs[0]);
+        const startedAt = performance.now();
+        logger.debug("tool start", { tool: name, args });
+
         try {
           const result = await handler(...handlerArgs);
+          const duration_ms = Math.round(performance.now() - startedAt);
           // Una herramienta MCP señala el fallo con isError, no lanzando.
           if (result?.isError) {
-            span.setStatus({ code: SpanStatusCode.ERROR });
-            span.setAttribute("mcp.tool.is_error", true);
+            span?.setStatus({ code: SpanStatusCode.ERROR });
+            span?.setAttribute("mcp.tool.is_error", true);
+            logger.warn("tool error", { tool: name, args, duration_ms });
+          } else {
+            logger.info("tool ok", { tool: name, args, duration_ms });
           }
           return result;
         } catch (err) {
-          span.recordException(err as Error);
-          span.setStatus({
+          const duration_ms = Math.round(performance.now() - startedAt);
+          span?.recordException(err as Error);
+          span?.setStatus({
             code: SpanStatusCode.ERROR,
             message: err instanceof Error ? err.message : String(err),
           });
+          logger.error("tool failed", { tool: name, args, duration_ms, err });
           throw err;
-        } finally {
-          span.end();
         }
       });
 
-    return original(...args.slice(0, -1), traced);
+    return original(...args.slice(0, -1), instrumented);
   };
 
   return server;

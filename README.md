@@ -97,6 +97,32 @@ Variables de entorno:
 
 También puedes activarlo con `MCP_TRANSPORT=http` en vez del flag `--http`.
 
+## Logs
+
+El server escribe logs estructurados (**una línea JSON por evento**) siempre a
+**stderr** — nunca a stdout, que en modo stdio es el canal del protocolo MCP.
+
+```json
+{"ts":"2026-08-13T10:22:31.004Z","level":"info","msg":"tool ok","tool":"book_class","args":{"time":"18:15"},"duration_ms":412,"trace_id":"4bf92f…","span_id":"00f067…"}
+```
+
+| Var | Por defecto | Descripción |
+|---|---|---|
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` o `silent` (apaga los logs). |
+
+Qué se registra:
+
+- **Ciclo de vida**: arranque (`server started`, con transporte, puerto y si exige token), parada, apertura y cierre de sesiones HTTP.
+- **Herramientas**: una línea por invocación con el nombre, los argumentos y la duración — `tool ok`, `tool error` (la herramienta devuelve `isError`) o `tool failed` (excepción, con el stack).
+- **Errores**: peticiones HTTP fallidas, `401` por token inválido, sesión ausente o caducada y errores fatales.
+- Con `LOG_LEVEL=debug` se añaden `tool start` y los `404`/`405` del endpoint HTTP.
+
+No se registran nunca credenciales, cookies de sesión ni el token de `MCP_HTTP_TOKEN`.
+
+Si el tracing está activo (ver abajo), cada línea lleva `trace_id`/`span_id` del
+span en curso, así se salta desde un log (Loki) a su traza (Tempo). En Docker/k8s
+basta con recoger la salida del contenedor: no hay ficheros de log.
+
 ## Trazas (OpenTelemetry)
 
 Opcional y desactivado por defecto: si defines `OTEL_EXPORTER_OTLP_ENDPOINT`, el
