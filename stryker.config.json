@@ -1,9 +1,15 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "packageManager": "npm",
-  "testRunner": "vitest",
-  "mutate": ["src/**/*.ts"],
-  "reporters": ["html", "clear-text", "progress"],
+  "testRunner": "command",
+  "mutate": [
+    "src/**/*.ts"
+  ],
+  "reporters": [
+    "html",
+    "clear-text",
+    "progress"
+  ],
   "htmlReporter": {
     "fileName": "reports/mutation/index.html"
   },
@@ -14,5 +20,9 @@
     "high": 90,
     "low": 75,
     "break": 85
-  }
+  },
+  "commandRunner": {
+    "command": "npm test"
+  },
+  "tsconfigFile": "tsconfig.mutation.json"
 }
