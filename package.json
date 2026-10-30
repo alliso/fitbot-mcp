@@ -43,7 +43,7 @@
     "@opentelemetry/instrumentation-http": "^0.222.0",
     "@opentelemetry/instrumentation-undici": "^0.32.0",
     "@opentelemetry/sdk-node": "^0.222.0",
-    "zod": "^3.23.8"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@stryker-mutator/core": "^10.0.0",
